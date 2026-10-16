@@ -231,5 +231,6 @@ Aqui os papéis ficaram assim: o Claude Code construiu, o Antigravity (Gemini 4 
 |---|---|---|
 | Spike da confirmação | aprovado, 4 observações | Instruções dos especialistas passaram a devolver a conversa ao principal; idempotência separada da exclusividade; `.env.example` sem valores |
 | Núcleo e API | aprovado com os 15 passos rodados por ele (44/44), 3 observações | Correção de uma conclusão errada minha no spike; o avaliador local passou a encerrar a API com segurança |
+| README | aprovado depois de conferir as 16 referências de arquivo e linha e subir a API e o `adk web`, 2 observações | Aviso sobre o State ao usar o `adk web`; idempotência citada também para os visitantes |
 
 Fato é, o auditor também erra. No spike ele aprovou com razão, mas citou como evidência cenários e arquivos que não existiam. Peguei isso conferindo o relatório contra os comandos que ele de fato rodou, e na rodada seguinte passei a exigir que toda checagem citada tivesse sido executada. No núcleo a evidência era real. Esse tipo de coisa é o que o processo existe para expor: não basta ter um segundo agente, alguém precisa conferir o que ele afirma.
