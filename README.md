@@ -8,47 +8,56 @@ Então a decisão de base foi esta: o modelo escolhe o caminho da conversa, e o 
 
 ## Arquitetura
 
+Diagrama de componentes no modelo [C4](https://c4model.com/) (nível 3): pessoas em azul-escuro, componentes do assistente em azul-claro, bancos e arquivos em azul, sistema externo em cinza. Cada seta diz o que trafega e, entre colchetes, o mecanismo.
+
 ```mermaid
-flowchart LR
-    morador(["Morador<br/>(app do condomínio)"])
+flowchart TB
+    morador["<b>Morador</b><br/>[Pessoa]<br/>Conversa pelo app do condomínio"]
+    admin["<b>Administração</b><br/>[Pessoa]<br/>Confere reservas e visitantes"]
 
-    subgraph api ["API FastAPI · src/aurora/api.py"]
-        msg["POST /sessoes/{id}/mensagens"]
-        conf["POST /sessoes/{id}/confirmacoes<br/>409 se o id não está pendente"]
-        verif["Rotas de verificação (avaliador)<br/>GET /apartamentos/{n}/reservas<br/>GET /apartamentos/{n}/visitantes"]
+    subgraph sistema ["Assistente do Residencial Aurora [Container: Python 3.12, FastAPI, Google ADK 2.9.1]"]
+        api["<b>API HTTP</b><br/>[Componente: FastAPI · api.py]<br/>Contrato do enunciado. Monta as confirmações pendentes a partir dos eventos e responde 409 para id não pendente"]
+
+        subgraph agentes ["Agentes [App resumível · agentes.py, runtime.py]"]
+            concierge["<b>concierge</b><br/>[Componente: LlmAgent, principal]<br/>Encaminha o pedido. Sem tools de dados e sem o regulamento"]
+            reservas["<b>reservas</b><br/>[Componente: LlmAgent, sub_agent]<br/>Disponibilidade, reservar, listar e cancelar"]
+            visitantes["<b>visitantes</b><br/>[Componente: LlmAgent, sub_agent]<br/>Autorizar e listar visitantes"]
+            regulamento["<b>regulamento</b><br/>[Componente: LlmAgent via AgentTool]<br/>Responde dúvidas numa sessão isolada"]
+        end
+
+        tools["<b>Tools</b><br/>[Componente: Python · ferramentas.py]<br/>Apartamento sempre do state da sessão. Pedem confirmação para cobrança e acesso"]
+        repo["<b>Repositório do condomínio</b><br/>[Componente: Python, sqlite3 · dados.py]<br/>Índice único parcial por área e data. Gravação idempotente por chamada"]
+        busca["<b>Busca no regulamento</b><br/>[Componente: Python · regulamento.py]<br/>Até 3 artigos de um único capítulo"]
     end
 
-    subgraph adk ["Google ADK · App resumível"]
-        concierge["concierge<br/>agente principal<br/>sem tools de dados"]
-        reservas["reservas<br/>especialista"]
-        visitantes["visitantes<br/>especialista"]
-        regulamento["regulamento<br/>especialista em sessão isolada"]
-    end
+    gemini["<b>Google Gemini API</b><br/>[Sistema externo]<br/>Modelo de cada agente"]
+    dbcond[("<b>Banco do condomínio</b><br/>[Container: SQLite]<br/>var/condominio.db")]
+    dbsess[("<b>Banco de sessões</b><br/>[Container: SQLite]<br/>var/sessoes.db")]
+    regmd[/"<b>Regulamento</b><br/>[Arquivo: Markdown]<br/>dados/regulamento.md"/]
 
-    subgraph tools ["Tools · src/aurora/ferramentas.py"]
-        tr["listar_areas · consultar_disponibilidade<br/>minhas_reservas · cancelar_reserva<br/>reservar_area (confirmação se taxa > 0)"]
-        tv["meus_visitantes<br/>autorizar_visitante (confirmação sempre)"]
-        tg["buscar_regulamento<br/>até 3 artigos de 1 capítulo"]
-    end
+    morador -->|"Envia mensagens e responde<br/>confirmações [JSON/HTTP]"| api
+    admin -->|"Consulta reservas e<br/>visitantes [JSON/HTTP]"| api
+    api -->|"Executa a conversa [Runner]"| concierge
+    api -->|"Lê e grava sessões e eventos<br/>[DatabaseSessionService]"| dbsess
+    api -->|"Lê para as rotas de verificação"| repo
+    concierge -->|"Transfere e recebe de volta<br/>[transfer_to_agent]"| reservas
+    concierge -->|"Transfere e recebe de volta<br/>[transfer_to_agent]"| visitantes
+    concierge -->|"Consulta [AgentTool]"| regulamento
+    reservas & visitantes -->|"Chamam"| tools
+    regulamento -->|"Chama buscar_regulamento"| busca
+    tools -->|"Lê e grava"| repo
+    repo -->|"SQL [sqlite3]"| dbcond
+    busca -->|"Lê"| regmd
+    agentes -->|"Gera respostas e chamadas<br/>de tool [HTTPS]"| gemini
 
-    condominio[("var/condominio.db<br/>reservas e visitantes")]
-    sessoes[("var/sessoes.db<br/>sessões e eventos")]
-    reg[/"dados/regulamento.md"/]
-
-    morador --> msg & conf
-    msg & conf -->|Runner| concierge
-    concierge -->|transfere| reservas
-    concierge -->|transfere| visitantes
-    concierge -->|AgentTool| regulamento
-    reservas -->|devolve quando muda o assunto| concierge
-    visitantes -->|devolve quando muda o assunto| concierge
-    reservas --> tr
-    visitantes --> tv
-    regulamento --> tg
-    tr & tv --> condominio
-    verif --> condominio
-    tg --> reg
-    adk -. eventos .-> sessoes
+    classDef pessoa fill:#08427B,stroke:#052E56,color:#fff
+    classDef componente fill:#85BBF0,stroke:#5D82A8,color:#000
+    classDef container fill:#438DD5,stroke:#2E6295,color:#fff
+    classDef externo fill:#999999,stroke:#6B6B6B,color:#fff
+    class morador,admin pessoa
+    class api,concierge,reservas,visitantes,regulamento,tools,repo,busca componente
+    class dbcond,dbsess,regmd container
+    class gemini externo
 ```
 
 Duas tools pedem confirmação ao sistema: `reservar_area`, só quando a área tem taxa, e `autorizar_visitante`, sempre.
