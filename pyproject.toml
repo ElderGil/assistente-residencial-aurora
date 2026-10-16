@@ -16,7 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-aurora = "aurora:main"
+api = "aurora.api:main"
+restaurar = "aurora.restaurar:main"
 
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12.0"]
