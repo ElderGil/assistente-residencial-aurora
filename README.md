@@ -8,7 +8,7 @@ Então a decisão de base foi esta: o modelo escolhe o caminho da conversa, e o 
 
 ## Arquitetura
 
-Diagrama de componentes no modelo [C4](https://c4model.com/) (nível 3): pessoas em azul-escuro, componentes do assistente em azul-claro, bancos e arquivos em azul, sistema externo em cinza. Cada seta diz o que trafega e, entre colchetes, o mecanismo.
+Diagrama de componentes no modelo [C4](https://c4model.com/), nível 3.
 
 ```mermaid
 flowchart TB
@@ -50,14 +50,23 @@ flowchart TB
     busca -->|"Lê"| regmd
     agentes -->|"Gera respostas e chamadas<br/>de tool [HTTPS]"| gemini
 
+    subgraph legenda ["Legenda"]
+        direction LR
+        lg1["Pessoa"]
+        lg2["Componente"]
+        lg3["Container"]
+        lg4["Sistema externo"]
+        lg1 ~~~ lg2 ~~~ lg3 ~~~ lg4
+    end
+
     classDef pessoa fill:#08427B,stroke:#052E56,color:#fff
     classDef componente fill:#85BBF0,stroke:#5D82A8,color:#000
     classDef container fill:#438DD5,stroke:#2E6295,color:#fff
     classDef externo fill:#999999,stroke:#6B6B6B,color:#fff
-    class morador,admin pessoa
-    class api,concierge,reservas,visitantes,regulamento,tools,repo,busca componente
-    class dbcond,dbsess,regmd container
-    class gemini externo
+    class morador,admin,lg1 pessoa
+    class api,concierge,reservas,visitantes,regulamento,tools,repo,busca,lg2 componente
+    class dbcond,dbsess,regmd,lg3 container
+    class gemini,lg4 externo
 ```
 
 Duas tools pedem confirmação ao sistema: `reservar_area`, só quando a área tem taxa, e `autorizar_visitante`, sempre.
