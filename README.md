@@ -8,15 +8,50 @@ Então a decisão de base foi esta: o modelo escolhe o caminho da conversa, e o 
 
 ## Arquitetura
 
-```
-POST /sessoes/{id}/mensagens ─► concierge (agente principal)
-                                 ├─ transfere ─► reservas    (tools: listar_areas, consultar_disponibilidade,
-                                 │                            minhas_reservas, reservar_area*, cancelar_reserva)
-                                 ├─ transfere ─► visitantes  (tools: meus_visitantes, autorizar_visitante*)
-                                 └─ chama     ─► regulamento (AgentTool; tool: buscar_regulamento)
+```mermaid
+flowchart LR
+    morador(["Morador<br/>(app do condomínio)"])
 
-* pede confirmação ao sistema: reservar_area só quando a área tem taxa; autorizar_visitante sempre
+    subgraph api ["API FastAPI · src/aurora/api.py"]
+        msg["POST /sessoes/{id}/mensagens"]
+        conf["POST /sessoes/{id}/confirmacoes<br/>409 se o id não está pendente"]
+        verif["Rotas de verificação (avaliador)<br/>GET /apartamentos/{n}/reservas<br/>GET /apartamentos/{n}/visitantes"]
+    end
+
+    subgraph adk ["Google ADK · App resumível"]
+        concierge["concierge<br/>agente principal<br/>sem tools de dados"]
+        reservas["reservas<br/>especialista"]
+        visitantes["visitantes<br/>especialista"]
+        regulamento["regulamento<br/>especialista em sessão isolada"]
+    end
+
+    subgraph tools ["Tools · src/aurora/ferramentas.py"]
+        tr["listar_areas · consultar_disponibilidade<br/>minhas_reservas · cancelar_reserva<br/>reservar_area (confirmação se taxa > 0)"]
+        tv["meus_visitantes<br/>autorizar_visitante (confirmação sempre)"]
+        tg["buscar_regulamento<br/>até 3 artigos de 1 capítulo"]
+    end
+
+    condominio[("var/condominio.db<br/>reservas e visitantes")]
+    sessoes[("var/sessoes.db<br/>sessões e eventos")]
+    reg[/"dados/regulamento.md"/]
+
+    morador --> msg & conf
+    msg & conf -->|Runner| concierge
+    concierge -->|transfere| reservas
+    concierge -->|transfere| visitantes
+    concierge -->|AgentTool| regulamento
+    reservas -->|devolve quando muda o assunto| concierge
+    visitantes -->|devolve quando muda o assunto| concierge
+    reservas --> tr
+    visitantes --> tv
+    regulamento --> tg
+    tr & tv --> condominio
+    verif --> condominio
+    tg --> reg
+    adk -. eventos .-> sessoes
 ```
+
+Duas tools pedem confirmação ao sistema: `reservar_area`, só quando a área tem taxa, e `autorizar_visitante`, sempre.
 
 | Agente | Responsabilidade | Como é acionado | Por quê |
 |---|---|---|---|
@@ -72,7 +107,7 @@ if corpo.id not in {p["id"] for p in pendencias(sessao)}:
     raise HTTPException(status_code=409, detail="Não existe confirmação pendente com esse id nesta sessão.")
 ```
 
-`src/aurora/dados.py:34` e `:194-218`: cada gravação leva o id da chamada de tool (`chamada TEXT UNIQUE`). A retomada do ADK é "pelo menos uma vez", então uma execução repetida da mesma chamada devolve a reserva já gravada em vez de duplicar.
+`src/aurora/dados.py:34`, `:43`, `:194-218` e `:232-242`: cada gravação de reserva ou de visitante leva o id da chamada de tool (`chamada TEXT UNIQUE`). A retomada do ADK é "pelo menos uma vez", então uma execução repetida da mesma chamada devolve o registro já gravado em vez de duplicar.
 
 Por que não depende do modelo: quem pausa a tool é o `FunctionTool` do ADK, antes de a função rodar. "Já estou confirmando aqui" é texto de conversa e não vira `FunctionResponse` de confirmação, que só nasce na rota `/confirmacoes`. E a rota recusa com 409 qualquer id que não esteja pendente nos eventos gravados, inclusive um já respondido, antes de chamar o Runner.
 
@@ -166,7 +201,7 @@ uv run api                  # sobe a API em http://localhost:8000
 
 A restauração recria reservas e visitantes a partir de `dados/` e mantém as sessões. Os códigos de reserva já emitidos continuam bloqueados, então uma reserva nova nunca repete um código antigo. A API também cria o banco sozinha na primeira subida, se `var/` estiver vazio.
 
-Para ver transferências, chamadas de tool e confirmações acontecendo durante o desenvolvimento, use o `adk web` numa porta que não seja a da API, por exemplo `uv run adk web src --port 3000` (o app aparece como `aurora`).
+Para ver transferências, chamadas de tool e confirmações acontecendo durante o desenvolvimento, use o `adk web` numa porta que não seja a da API, por exemplo `uv run adk web src --port 3000` (o app aparece como `aurora`). Ao criar uma sessão pela interface, preencha `{"apartamento": "101"}` na aba State. Sem isso as tools falham de propósito: o apartamento só vem do state da sessão, nunca do que se escreve no chat.
 
 ## Observação: revisão em par com o agent-revisor
 
